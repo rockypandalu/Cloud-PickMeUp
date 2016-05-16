@@ -1,6 +1,5 @@
 from flask import render_template, jsonify, Flask, request
 import json
-
 import urllib
 from collections import OrderedDict
 import time
@@ -8,7 +7,6 @@ import boto3
 import botocore.session
 import boto.sns
 import logging
-
 import math
 import requests
 import uuid
@@ -40,6 +38,7 @@ def add_to_db(db, data, driver_user, driver_phone, driver_token, drivers_lat, dr
         time_duration = int(info["duration"]["value"])
         driver_time = driver_time+int(time_duration)
 
+# Add this client info to the given db
 def add_to_client_db(db, client_source, client_destination, client_time, client_phone, client_token):
     unique_id = str(uuid.uuid1())
     db.put_item(Item={
@@ -52,7 +51,7 @@ def add_to_client_db(db, client_source, client_destination, client_time, client_
         })
     return unique_id
 
-# Initialize the table in Dynamodb
+# Initialize the client's table in Dynamodb
 def init_client_db():    
     try:
         user=dynamodb.create_table(
@@ -78,12 +77,8 @@ def init_client_db():
         user=dynamodb.Table('clientinfo')
     return user
 
-def init_db():
-    #Basic Account info
-    # ACCOUNT_ID = '006771170833'   
-    # IDENTITY_POOL_ID = 'us-east-1:83f9c923-c638-4349-933f-9a3e1cdd58a1'       
-    # ROLE_ARN = 'arn:aws:iam::006771170833:role/Cognito_friday410Unauth_Role'      
-    # dynamodb = boto3.resource('dynamodb')                                         
+# Initialize the driver's table
+def init_db():                                    
     
     try:
         user=dynamodb.create_table(
@@ -123,9 +118,9 @@ def driverlocation():
         break
 
     lat_now = float(posted_data[0])
-    #print 'LAT_NOW******', lat_now
+
     lng_now = float(posted_data[1])
-    #print 'LNG NOW******', lng_now
+
     payload = Payload(custom = {"driver_lat":lat_now, "driver_lng":lng_now})
     apns.gateway_server.send_notification("######################################################", payload)
     return 'Hello world!'
@@ -183,7 +178,7 @@ def post_driver_info():
 
     return 'Hello World'
 
-# According to the given customer info, SNS message to user
+# According to the given customer info, push notification to user
 @app.route('/postclient', methods = ['GET', 'POST', 'PUT'])
 def post_client_info():
 
@@ -192,10 +187,6 @@ def post_client_info():
     for each in dic: 
         posted_string_data = each
         break
-
-    # print 'string is', str(posted_client_data).split(",")
-
-    # client_list = str(posted_client_data).split(",")
 
     posted_client_data = json.loads(posted_string_data)
 
@@ -249,6 +240,7 @@ def post_client_info():
     response = user.scan()
     candidate = []
 
+    # Iterate through all drivers; Pick the one within 10 mins, 3 km; Save in array 'candidate'
     for item in response["Items"]:
         if abs(int(item["time"])-client_time) < 10*60:
             lon = float(item["location"].split("+")[0].encode('utf8'))
@@ -261,6 +253,8 @@ def post_client_info():
             if abs(lon - client_sdic["lon"]) < 0.03 and abs(lat - client_sdic["lat"]) < 0.03:
                 candidate.append({'username':item["username"],'driver_token': item["driver_token"],'time':int(item["time"]),'drivers_lat':item["drivers_lat"], 'drivers_lon': item["drivers_lon"], 'driverd_lat':item["driverd_lat"], 'driverd_lon': item["driverd_lon"]})
     print candidate
+
+    # Iterate through all candidates; Save all drivers info in 'ret_token'
     for can in candidate:    
         for item in response["Items"]:
             if item["username"] == can["username"]:
@@ -270,11 +264,12 @@ def post_client_info():
                     if item["time"]>can["time"]:
                         ret_token[can["username"]] = {"driver_token":can["driver_token"],"drivers_lat":can["drivers_lat"],"drivers_lon":can["drivers_lon"], "driverd_lat": can["driverd_lat"], "driverd_lon":can["driverd_lon"]}
     print 'Finding driver matches your route:', ret_token
+
+    # If matches found
     if ret_token:
         # Send to client, a simple note
         for each_driver_username in ret_token: # For each driver, send notification
             this_driver_token = ret_token[each_driver_username]
-            # A dictionary storing client and driver info; Send to driver
             
             # Put the driver's info into final_retdic, in addition to all client's info added previously; Send to driver
             final_retdic["drivers_lat"] = this_driver_token["drivers_lat"]
@@ -290,6 +285,7 @@ def post_client_info():
 
     return 'Hello World'
 
+# Send push notification to given token
 def apns_sns_send(token, mes, dic_result):
     token_hex = token
     time.sleep(10)
